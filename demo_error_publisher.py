@@ -19,6 +19,13 @@ class CartesianErrorDemoPublisher(Node):
         self.get_logger().info("Declaring PID and deadband parameters...")
         self.declare_parameter("pid.right.pos.deadband", 0.015)
         self.declare_parameter("pid.right.rot.deadband", 0.035)
+        # Declare fake PID gain parameters for both arms
+        for arm in ['right', 'left']:
+            for typ in ['pos', 'rot']:
+                for axis in ['x', 'y', 'z']:
+                    for gain, val in zip(['p', 'i', 'd'], [1.0, 0.1, 0.01]):
+                        param_name = f"pid.{arm}.{typ}.{axis}.{gain}"
+                        self.declare_parameter(param_name, val + random.uniform(-0.2, 0.2))
 
         pos_db = self.get_parameter('pid.right.pos.deadband').get_parameter_value().double_value
         self.get_logger().info(f"Deadband parameter 'pid.right.pos.deadband' set to: {pos_db}")

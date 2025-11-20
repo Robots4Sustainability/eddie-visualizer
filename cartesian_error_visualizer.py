@@ -23,6 +23,8 @@ class CartesianErrorVisualizer(Node):
         # Always initialize deadbands to defaults first
         self.position_deadband = DEFAULT_POSITION_DEADBAND
         self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
+        # Store PID gains
+        self.pid_gains = {}
         
         # Maximum number of points to display
         self.max_points = max_points
@@ -59,7 +61,14 @@ class CartesianErrorVisualizer(Node):
             self.get_logger().info("Fetching PID deadband parameters asynchronously...")
             future_pos = self.param_client.get_parameters(['pid.right.pos.deadband'])
             future_rot = self.param_client.get_parameters(['pid.right.rot.deadband'])
-            # Use a callback to set the parameters
+            # Fetch all PID gains
+            pid_param_names = []
+            for arm in ['right', 'left']:
+                for typ in ['pos', 'rot']:
+                    for axis in ['x', 'y', 'z']:
+                        for gain in ['p', 'i', 'd']:
+                            pid_param_names.append(f'pid.{arm}.{typ}.{axis}.{gain}')
+            future_gains = self.param_client.get_parameters(pid_param_names)
             def pos_done(fut):
                 params = fut.result().values
                 if params:
@@ -76,8 +85,14 @@ class CartesianErrorVisualizer(Node):
                 else:
                     self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
                     self.get_logger().warn("Could not fetch rotation deadband, using default.")
+            def gains_done(fut):
+                params = fut.result().values
+                for i, name in enumerate(pid_param_names):
+                    self.pid_gains[name] = params[i].double_value if i < len(params) else None
+                self.get_logger().info(f"Fetched PID gains: {self.pid_gains}")
             future_pos.add_done_callback(pos_done)
             future_rot.add_done_callback(rot_done)
+            future_gains.add_done_callback(gains_done)
         
         # Create subscribers
         self.right_sub = self.create_subscription(
@@ -223,11 +238,10 @@ def main(args=None):
     # ax_left_angular.legend(loc='upper right')
     
     plt.tight_layout()
-    #plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.subplots_adjust(bottom=0.12)  # Reserve space at the bottom for PID gains
     
     def update_plot(frame):
         """Animation update function"""
-        # Spin the ROS2 node to process callbacks
         rclpy.spin_once(visualizer, timeout_sec=0)
         
         # Update right arm linear plot
@@ -280,6 +294,24 @@ def main(args=None):
         #     # Auto-scale axes
         #     ax_left_angular.relim()
         #     ax_left_angular.autoscale_view()
+        
+        # Draw PID gains as small text in the reserved blank section below the plots
+        pid_text = ''
+        for arm in ['right', 'left']:
+            for typ in ['pos', 'rot']:
+                pid_text += f'{arm} {typ}: '
+                for axis in ['x', 'y', 'z']:
+                    for gain in ['p', 'i', 'd']:
+                        key = f'pid.{arm}.{typ}.{axis}.{gain}'
+                        val = visualizer.pid_gains.get(key, None)
+                        if val is not None:
+                            pid_text += f'{axis}.{gain}={val:.3f} '
+                pid_text += '\n'
+        # Remove previous text if any
+        if hasattr(update_plot, 'pid_text_box'):
+            update_plot.pid_text_box.remove()
+        # Add new text box in reserved area (bottom center)
+        update_plot.pid_text_box = fig.text(0.5, 0.01, pid_text, fontsize=8, color='gray', ha='center', va='bottom', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
         
         return (line_right_x, line_right_y, line_right_z)
 
