@@ -13,7 +13,15 @@ import random
 
 class CartesianErrorDemoPublisher(Node):
     def __init__(self):
-        super().__init__('cartesian_error_demo_publisher')
+        #super().__init__('cartesian_error_demo_publisher')
+        super().__init__('eddie_ros_interface')
+        
+        self.get_logger().info("Declaring PID and deadband parameters...")
+        self.declare_parameter("pid.right.pos.deadband", 0.015)
+        self.declare_parameter("pid.right.rot.deadband", 0.035)
+
+        pos_db = self.get_parameter('pid.right.pos.deadband').get_parameter_value().double_value
+        self.get_logger().info(f"Deadband parameter 'pid.right.pos.deadband' set to: {pos_db}")
         
         # Publishers for both arms
         self.right_pub = self.create_publisher(

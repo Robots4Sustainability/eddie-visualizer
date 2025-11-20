@@ -20,6 +20,9 @@ DEFAULT_ROTATION_DEADBAND = 0.02  # ~1 degree
 class CartesianErrorVisualizer(Node):
     def __init__(self, max_points=500):
         super().__init__('cartesian_error_visualizer')
+        # Always initialize deadbands to defaults first
+        self.position_deadband = DEFAULT_POSITION_DEADBAND
+        self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
         
         # Maximum number of points to display
         self.max_points = max_points
@@ -60,7 +63,7 @@ class CartesianErrorVisualizer(Node):
             def pos_done(fut):
                 params = fut.result().values
                 if params:
-                    self.position_deadband = params[0].value
+                    self.position_deadband = params[0].double_value
                     self.get_logger().info(f"Using Position Deadband: {self.position_deadband}")
                 else:
                     self.position_deadband = DEFAULT_POSITION_DEADBAND
@@ -68,7 +71,7 @@ class CartesianErrorVisualizer(Node):
             def rot_done(fut):
                 params = fut.result().values
                 if params:
-                    self.rotation_deadband = params[0].value
+                    self.rotation_deadband = params[0].double_value
                     self.get_logger().info(f"Using Rotation Deadband: {self.rotation_deadband}")
                 else:
                     self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
