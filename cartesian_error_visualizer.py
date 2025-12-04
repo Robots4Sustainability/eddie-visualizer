@@ -214,19 +214,19 @@ def main(args=None):
         pid_text = ''
         for arm in ['right', 'left']:
             for typ in ['pos', 'rot']:
-                pid_text += f'{arm} {typ}: '
+                pid_text += f'{arm.capitalize()} {typ.capitalize()}: '
                 for axis in ['x', 'y', 'z']:
-                    for gain in ['p', 'i', 'd']:
-                        key = f'pid.{arm}.{typ}.{axis}.{gain}'
-                        val = visualizer.pid_gains.get(key, None)
-                        if val is not None:
-                            pid_text += f'{axis}.{gain}={val:.3f} '
+                    p = visualizer.pid_gains.get(f'pid.{arm}.pos.{axis}.p', 0)
+                    i = visualizer.pid_gains.get(f'pid.{arm}.pos.{axis}.i', 0)
+                    d = visualizer.pid_gains.get(f'pid.{arm}.pos.{axis}.d', 0)
+                    pid_text += f" {axis.upper()}[P:{p:.3f} I:{i:.3f} D:{d:.3f}]"
                 pid_text += '\n'
+
         # Remove previous text if any
         if hasattr(update_plot, 'pid_text_box'):
             update_plot.pid_text_box.remove()
         # Add new text box in reserved area (bottom center)
-        update_plot.pid_text_box = fig.text(0.5, 0.01, pid_text, fontsize=8, color='gray', ha='center', va='bottom', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+        update_plot.pid_text_box = fig.text(0.5, 0.01, pid_text, fontsize=8, ha='center', va='bottom', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
         
         return (line_right_x, line_right_y, line_right_z)
 
