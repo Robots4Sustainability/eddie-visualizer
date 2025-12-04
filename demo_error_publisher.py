@@ -17,8 +17,8 @@ class CartesianErrorDemoPublisher(Node):
         super().__init__('eddie_ros_interface')
         
         self.get_logger().info("Declaring PID and deadband parameters...")
-        self.declare_parameter("pid.right.pos.deadband", 0.015)
-        self.declare_parameter("pid.right.rot.deadband", 0.035)
+        self.declare_parameter("pid.right.pos.deadband", 0.03)
+        self.declare_parameter("pid.right.rot.deadband", 0.03)
         # Declare fake PID gain parameters for both arms
         for arm in ['right', 'left']:
             for typ in ['pos', 'rot']:
