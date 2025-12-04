@@ -2,32 +2,36 @@
 """
 Cartesian Error Visualizer for ROS2 Jazzy
 Subscribes to Twist messages on cartesian error topics and plots them in real-time.
+Automatically detects parameter changes on 'eddie_ros_interface'.
+Updates Deadband visuals and PID text dynamically
 """
 
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter_client import AsyncParameterClient
 from geometry_msgs.msg import Twist
+from rcl_interfaces.msg import ParameterEvent
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from collections import deque
-import numpy as np
 
-DEFAULT_POSITION_DEADBAND = 0.005 # 5 millimeters
-DEFAULT_ROTATION_DEADBAND = 0.02  # ~1 degree
+DEFAULT_POSITION_DEADBAND = 0.005 
 
-
-class CartesianErrorVisualizer(Node):
-    def __init__(self, max_points=500):
+class HybridVisualizer(Node):
+    def __init__(self, max_points=200):
         super().__init__('cartesian_error_visualizer')
-        # Always initialize deadbands to defaults first
+        
+        # Configuration
+        self.target_node_name = 'eddie_ros_interface'
+        self.max_points = max_points
+        
+        # State Variables
         self.position_deadband = DEFAULT_POSITION_DEADBAND
-        self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
-        # Store PID gains
         self.pid_gains = {}
         
-        # Maximum number of points to display
-        self.max_points = max_points
+        # Flags for updates
+        self.params_need_fetch = True  # Fetch immediately on start
+        self.visuals_need_update = True
         
         # Data storage for right arm
         self.right_time = deque(maxlen=max_points)
@@ -46,53 +50,12 @@ class CartesianErrorVisualizer(Node):
         self.left_angular_x = deque(maxlen=max_points)
         self.left_angular_y = deque(maxlen=max_points)
         self.left_angular_z = deque(maxlen=max_points)
-        
+
         # Time tracking
         self.start_time = self.get_clock().now()
 
-        self.get_logger().info("Waiting for interface node parameters...")
-        # Create a client to talk to the parameter server of another node
-        self.param_client = AsyncParameterClient(self, 'eddie_ros_interface')
-        if not self.param_client.wait_for_services(timeout_sec=5.0):
-            self.get_logger().error("Parameter service for 'eddie_ros_interface' not available. Using default deadbands.")
-            self.position_deadband = DEFAULT_POSITION_DEADBAND # Fallback defaults
-            self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
-        else:
-            self.get_logger().info("Fetching PID deadband parameters asynchronously...")
-            future_pos = self.param_client.get_parameters(['pid.right.pos.deadband'])
-            future_rot = self.param_client.get_parameters(['pid.right.rot.deadband'])
-            # Fetch all PID gains
-            pid_param_names = []
-            for arm in ['right', 'left']:
-                for typ in ['pos', 'rot']:
-                    for axis in ['x', 'y', 'z']:
-                        for gain in ['p', 'i', 'd']:
-                            pid_param_names.append(f'pid.{arm}.{typ}.{axis}.{gain}')
-            future_gains = self.param_client.get_parameters(pid_param_names)
-            def pos_done(fut):
-                params = fut.result().values
-                if params:
-                    self.position_deadband = params[0].double_value
-                    self.get_logger().info(f"Using Position Deadband: {self.position_deadband}")
-                else:
-                    self.position_deadband = DEFAULT_POSITION_DEADBAND
-                    self.get_logger().warn("Could not fetch position deadband, using default.")
-            def rot_done(fut):
-                params = fut.result().values
-                if params:
-                    self.rotation_deadband = params[0].double_value
-                    self.get_logger().info(f"Using Rotation Deadband: {self.rotation_deadband}")
-                else:
-                    self.rotation_deadband = DEFAULT_ROTATION_DEADBAND
-                    self.get_logger().warn("Could not fetch rotation deadband, using default.")
-            def gains_done(fut):
-                params = fut.result().values
-                for i, name in enumerate(pid_param_names):
-                    self.pid_gains[name] = params[i].double_value if i < len(params) else None
-                self.get_logger().info(f"Fetched PID gains: {self.pid_gains}")
-            future_pos.add_done_callback(pos_done)
-            future_rot.add_done_callback(rot_done)
-            future_gains.add_done_callback(gains_done)
+        # Setup Parameter Client
+        self.param_client = AsyncParameterClient(self, self.target_node_name)
         
         # Create subscribers
         self.right_sub = self.create_subscription(
@@ -107,17 +70,20 @@ class CartesianErrorVisualizer(Node):
             self.left_callback,
             10
         )
-        
-        self.get_logger().info('Cartesian Error Visualizer started')
-        self.get_logger().info('Subscribed to:')
-        self.get_logger().info('  - right_arm/cartesian_error')
-        self.get_logger().info('  - left_arm/cartesian_error')
-    
+        self.create_subscription(
+            ParameterEvent,
+            '/parameter_events',
+            self.parameter_event_callback,
+            10
+        )
+
+        self.get_logger().info("Cartesian Error Visualizer started. Waiting for data...")
+
     def get_elapsed_time(self):
         """Get elapsed time since node started in seconds"""
         current_time = self.get_clock().now()
         return (current_time - self.start_time).nanoseconds / 1e9
-    
+
     def right_callback(self, msg):
         """Callback for right arm cartesian error"""
         current_time = self.get_elapsed_time()
@@ -142,100 +108,134 @@ class CartesianErrorVisualizer(Node):
         self.left_angular_y.append(msg.angular.y)
         self.left_angular_z.append(msg.angular.z)
 
+    def parameter_event_callback(self, msg: ParameterEvent):
+        """Triggered when any parameter changes in the system."""
+        if msg.node == f"/{self.target_node_name}":
+            self.get_logger().info("Parameter change detected. Queuing update...")
+            self.params_need_fetch = True
 
-def main(args=None):
-    rclpy.init(args=args)
-    
-    # Create the node
-    visualizer = CartesianErrorVisualizer(max_points=500)
-    
-    # Set up the plot
+    def fetch_parameters_async(self):
+        """Initiates an async request to get the latest values."""
+        if not self.param_client.services_are_ready():
+            return
+
+        param_names = ['pid.right.pos.deadband']
+        for arm in ['right', 'left']:
+            for typ in ['pos', 'rot']:
+                for axis in ['x', 'y', 'z']:
+                    for gain in ['p', 'i', 'd']:
+                        param_names.append(f'pid.{arm}.{typ}.{axis}.{gain}')
+
+        future = self.param_client.get_parameters(param_names)
+        future.add_done_callback(lambda fut: self._param_fetch_done(fut, param_names))
+        self.params_need_fetch = False 
+
+    def _param_fetch_done(self, future, param_names):
+        """Callback when parameter data arrives."""
+        try:
+            results = future.result().values
+            for i, name in enumerate(param_names):
+                val = results[i]
+                if val.type == 0: continue 
+                
+                extracted_val = 0.0
+                if val.type == 1: extracted_val = float(val.bool_value)
+                elif val.type == 2: extracted_val = float(val.integer_value)
+                elif val.type == 3: extracted_val = val.double_value
+
+                if name == 'pid.right.pos.deadband':
+                    self.position_deadband = extracted_val
+                else:
+                    self.pid_gains[name] = extracted_val
+            
+            self.get_logger().info(f"Parameters updated. Deadband: {self.position_deadband}")
+            self.visuals_need_update = True 
+        except Exception as e:
+            self.get_logger().error(f"Failed to process parameters: {e}")
+
+def main():
+    rclpy.init()
+    node = HybridVisualizer()
+
     plt.style.use('seaborn-v0_8-darkgrid')
     fig, axes = plt.subplots(3, 1, figsize=(14, 10))
-    fig.suptitle('Cartesian Error Visualization', fontsize=16, fontweight='bold')
-
-    ax_right_linear_x = axes[0]
-    ax_right_linear_x.set_title('Right Arm - Linear Errors X')
-    ax_right_linear_x.set_xlabel('Time (s)')
-    ax_right_linear_x.set_ylabel('Error (m)')
-    ax_right_linear_x.grid(True, alpha=0.3)
-    ax_right_linear_x.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
-    line_right_x, = ax_right_linear_x.plot([], [], 'r-', label='X', linewidth=1.5)
-    ax_right_linear_x.legend(loc='upper right')
-
-    ax_right_linear_y = axes[1]
-    ax_right_linear_y.set_title('Right Arm - Linear Errors Y')
-    ax_right_linear_y.set_xlabel('Time (s)')
-    ax_right_linear_y.set_ylabel('Error (m)')
-    ax_right_linear_y.grid(True, alpha=0.3)
-    ax_right_linear_y.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
-    line_right_y, = ax_right_linear_y.plot([], [], 'g-', label='Y', linewidth=1.5)
-    ax_right_linear_y.legend(loc='upper right')
-
-    ax_right_linear_z = axes[2]
-    ax_right_linear_z.set_title('Right Arm - Linear Errors Z')
-    ax_right_linear_z.set_xlabel('Time (s)')
-    ax_right_linear_z.set_ylabel('Error (m)')
-    ax_right_linear_z.grid(True, alpha=0.3)
-    ax_right_linear_z.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
-    line_right_z, = ax_right_linear_z.plot([], [], 'b-', label='Z', linewidth=1.5)
-    ax_right_linear_z.legend(loc='upper right')
+    fig.suptitle('Real-Time Cartesian Error & Dynamic Parameters', fontsize=16)
     
-    plt.tight_layout()
-    plt.subplots_adjust(bottom=0.12)  # Reserve space at the bottom for PID gains
-    
-    def update_plot(frame):
-        """Animation update function"""
-        rclpy.spin_once(visualizer, timeout_sec=0)
+    lines = []
+    deadband_spans = []
+    pid_text_box = None
 
-        if hasattr(update_plot, 'pos_deadband_span_x'):
-            update_plot.pos_deadband_span_x.remove()
-        if hasattr(update_plot, 'pos_deadband_span_y'):
-            update_plot.pos_deadband_span_y.remove()
-        if hasattr(update_plot, 'pos_deadband_span_z'):
-            update_plot.pos_deadband_span_z.remove()
+    colors = ['r', 'g', 'b']
+    labels = ['X', 'Y', 'Z']
 
-        update_plot.pos_deadband_span_x = ax_right_linear_x.axhspan(-visualizer.position_deadband, visualizer.position_deadband, facecolor='green', alpha=0.2, label='Position Deadband')
-        update_plot.pos_deadband_span_y = ax_right_linear_y.axhspan(-visualizer.position_deadband, visualizer.position_deadband, facecolor='green', alpha=0.2, label='Position Deadband')
-        update_plot.pos_deadband_span_z = ax_right_linear_z.axhspan(-visualizer.position_deadband, visualizer.position_deadband, facecolor='green', alpha=0.2, label='Position Deadband')
-
+    for i, ax in enumerate(axes):
+        ax.set_ylabel(f'{labels[i]} Error (m)')
+        ax.grid(True, alpha=0.3)
+        ax.axhline(0, color='black', alpha=0.5)
         
-        # Update right arm linear plot
-        if len(visualizer.right_time) > 0:
-            line_right_x.set_data(list(visualizer.right_time), list(visualizer.right_linear_x))
-            line_right_y.set_data(list(visualizer.right_time), list(visualizer.right_linear_y))
-            line_right_z.set_data(list(visualizer.right_time), list(visualizer.right_linear_z))
+        line, = ax.plot([], [], color=colors[i], linewidth=1.5, label=labels[i])
+        lines.append(line)
+        
+        span = ax.axhspan(-0.005, 0.005, facecolor='green', alpha=0.2)
+        deadband_spans.append(span)
+        
+        ax.legend(loc='upper right')
+
+    axes[2].set_xlabel('Time (s)')
+    plt.subplots_adjust(bottom=0.15) 
+
+    def generate_pid_string():
+        """Format the PID dictionary into a readable string."""
+        text = ''
+        for arm in ['right', 'left']:
+            for typ in ['pos']: 
+                text += f'{arm.upper()} {typ}: '
+                for axis in ['x', 'y', 'z']:
+                    p = node.pid_gains.get(f'pid.{arm}.{typ}.{axis}.p', 0)
+                    i = node.pid_gains.get(f'pid.{arm}.{typ}.{axis}.i', 0)
+                    d = node.pid_gains.get(f'pid.{arm}.{typ}.{axis}.d', 0)
+                    text += f" {axis.upper()}[{p:.2f}|{i:.2f}|{d:.2f}]"
+                text += '\n'
+        return text
+
+    def update_plot(frame):
+        rclpy.spin_once(node, timeout_sec=0)
+
+        if node.params_need_fetch:
+            node.fetch_parameters_async()
+
+        nonlocal pid_text_box
+        if node.visuals_need_update:
+            db = node.position_deadband
             
+            for span in deadband_spans:
+                try: span.remove()
+                except: pass
+            
+            deadband_spans.clear()
+            for ax in axes:
+                s = ax.axhspan(-db, db, facecolor='green', alpha=0.2, label=f'Deadband (+/- {db})')
+                deadband_spans.append(s)
+            
+            if pid_text_box: pid_text_box.remove()
+            pid_str = generate_pid_string()
+            pid_text_box = fig.text(0.5, 0.01, pid_str, fontsize=9, ha='center', va='bottom',
+                                  bbox=dict(facecolor='white', alpha=0.9, boxstyle='round'))
+            
+            node.visuals_need_update = False
+
+        if len(node.right_time) > 0:
+            t = list(node.right_time)
+            lines[0].set_data(t, list(node.right_linear_x))
+            lines[1].set_data(t, list(node.right_linear_y))
+            lines[2].set_data(t, list(node.right_linear_z))
+
             for ax in axes:
                 ax.relim()
                 ax.autoscale_view()
 
-        # Draw PID gains as small text in the reserved blank section below the plots
-        pid_text = ''
-        for arm in ['right', 'left']:
-            for typ in ['pos', 'rot']:
-                pid_text += f'{arm.capitalize()} {typ.capitalize()}: '
-                for axis in ['x', 'y', 'z']:
-                    p = visualizer.pid_gains.get(f'pid.{arm}.pos.{axis}.p', 0)
-                    i = visualizer.pid_gains.get(f'pid.{arm}.pos.{axis}.i', 0)
-                    d = visualizer.pid_gains.get(f'pid.{arm}.pos.{axis}.d', 0)
-                    pid_text += f" {axis.upper()}[P:{p:.3f} I:{i:.3f} D:{d:.3f}]"
-                pid_text += '\n'
+        return lines + deadband_spans
 
-        # Remove previous text if any
-        if hasattr(update_plot, 'pid_text_box'):
-            update_plot.pid_text_box.remove()
-        # Add new text box in reserved area (bottom center)
-        update_plot.pid_text_box = fig.text(0.5, 0.01, pid_text, fontsize=8, ha='center', va='bottom', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
-        
-        return (line_right_x, line_right_y, line_right_z)
-
-        # return (line_right_x, line_right_y, line_right_z,
-        #         line_left_x, line_left_y, line_left_z,
-        #         line_right_roll, line_right_pitch, line_right_yaw,
-        #         line_left_roll, line_left_pitch, line_left_yaw)
-    
-    # Create animation with 50ms interval (20 Hz)
     ani = FuncAnimation(fig, update_plot, interval=50, blit=False, cache_frame_data=False)
     
     try:
@@ -243,9 +243,8 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        visualizer.destroy_node()
+        node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
