@@ -43,3 +43,13 @@ Topics:
 - Large movements
 
 Cycles through scenarios every 5 seconds at 50 Hz.
+
+# Plot Torque Log
+
+`plot_torque_log.py` reads a torque log CSV file and plots the raw vs. smoothed torque for each joint found.
+Optionally plots only the last N seconds of data.
+
+**Run the plot**
+```bash
+python plot_torque_log.py ~/your_workspace/torque_log.csv --last-seconds 5
+```
