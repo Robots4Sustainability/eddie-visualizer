@@ -1,14 +1,13 @@
-# Cartesian Error Visualizer
-
-Real-time visualization of cartesian position and orientation errors from dual-arm robot manipulators.
-
-## Quick Start
+# Quick Start
 
 **Install dependencies:**
 
 ```bash
 pip install -r requirements.txt
 ```
+
+# Cartesian Error Visualizer
+Real-time visualization of cartesian position and orientation errors from dual-arm robot manipulators.
 
 **Run the demo:**
 
@@ -46,10 +45,27 @@ Cycles through scenarios every 5 seconds at 50 Hz.
 
 # Plot Torque Log
 
+After running the eddie-ros interface, a log CSV file will be created in your workspace. 
+
 `plot_torque_log.py` reads a torque log CSV file and plots the raw vs. smoothed torque for each joint found.
 Optionally plots only the last N seconds of data.
 
 **Run the plot**
 ```bash
 python plot_torque_log.py ~/your_workspace/torque_log.csv --last-seconds 5
+```
+
+# PID Component Visualizer
+
+Subscribes to a specific PID component topic (e.g., /right_arm/pid_components/pos_z) and plots the P, I, D, and Total contributions in real-time.
+
+**Usage**
+```bash
+python pid_component_visualizer.py --arm <arm_side> --axis <pos/rot>_<axis>
+```
+
+**Example Usage**
+```bash
+python pid_component_visualizer.py --arm right --axis pos_z
+python pid_component_visualizer.py --arm left --axis rot_x
 ```
