@@ -89,32 +89,57 @@ def main():
     rclpy.init(args=ros_args)
     visualizer_node = PIDComponentVisualizer(arm_side=args.arm, axis=args.axis)
 
-    fig, ax = plt.subplots(figsize=(15, 8))
+    fig, axes = plt.subplots(4, 1, figsize=(15, 12), sharex=True)
     title = f"PID Component Analysis: {args.arm.capitalize()} Arm - {args.axis.replace('_', ' ').upper()}"
-    ax.set_title(title, fontsize=16)
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Force/Torque Contribution')
-    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-    ax.axhline(0, color='black', linewidth=0.7)
+    fig.suptitle(title, fontsize=16)
 
-    # Create lines for each component
-    line_p, = ax.plot([], [], label='P Term (Proportional)', color='blue', linewidth=2)
-    line_i, = ax.plot([], [], label='I Term (Integral)', color='red', linewidth=2)
-    line_d, = ax.plot([], [], label='D Term (Derivative)', color='green', linewidth=2)
-    line_total, = ax.plot([], [], label='Total Output', color='black', linewidth=2.5, linestyle='--')
-    ax.legend()
+    ax_p, ax_i, ax_d, ax_total = axes
+
+    # Setup each subplot individually
+    ax_p.set_title('P (Proportional) Term')
+    ax_p.set_ylabel('Force/Torque')
+    ax_p.grid(True, linestyle='--')
+    line_p, = ax_p.plot([], [], color='blue', label='P Term')
+    ax_p.legend()
+
+    ax_i.set_title('I (Integral) Term')
+    ax_i.set_ylabel('Force/Torque')
+    ax_i.grid(True, linestyle='--')
+    line_i, = ax_i.plot([], [], color='red', label='I Term')
+    ax_i.legend()
+
+    ax_d.set_title('D (Derivative) Term')
+    ax_d.set_ylabel('Force/Torque')
+    ax_d.grid(True, linestyle='--')
+    line_d, = ax_d.plot([], [], color='green', label='D Term')
+    ax_d.legend()
+
+    ax_total.set_title('Total Output')
+    ax_total.set_xlabel('Time (s)')
+    ax_total.set_ylabel('Total Force/Torque')
+    ax_total.grid(True, linestyle='--')
+    line_total, = ax_total.plot([], [], color='black', linewidth=2, label='Total')
+    ax_total.legend()
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.96])
 
     def update_plot(frame):
         rclpy.spin_once(visualizer_node, timeout_sec=0)
         
         if len(visualizer_node.time_data) > 0:
             times = list(visualizer_node.time_data)
+            
+            # Update data for each line
             line_p.set_data(times, list(visualizer_node.p_data))
             line_i.set_data(times, list(visualizer_node.i_data))
             line_d.set_data(times, list(visualizer_node.d_data))
             line_total.set_data(times, list(visualizer_node.total_data))
-            ax.relim()
-            ax.autoscale_view()
+            
+            # Autoscale all subplots
+            for ax in axes:
+                ax.relim()
+                ax.autoscale_view()
+                
         return line_p, line_i, line_d, line_total
 
     ani = FuncAnimation(fig, update_plot, interval=50, blit=True, cache_frame_data=False)
