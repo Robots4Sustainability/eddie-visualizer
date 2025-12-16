@@ -17,7 +17,7 @@ from collections import deque
 
 DEFAULT_POSITION_DEADBAND = 0.005 
 
-class HybridVisualizer(Node):
+class CartesianErrorVisualizer(Node):
     def __init__(self, max_points=200):
         super().__init__('cartesian_error_visualizer')
         
@@ -155,7 +155,7 @@ class HybridVisualizer(Node):
 
 def main():
     rclpy.init()
-    node = HybridVisualizer()
+    node = CartesianErrorVisualizer()
 
     plt.style.use('seaborn-v0_8-darkgrid')
     fig, axes = plt.subplots(3, 1, figsize=(14, 10))
