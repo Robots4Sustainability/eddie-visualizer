@@ -43,6 +43,10 @@ Topics:
 
 Cycles through scenarios every 5 seconds at 50 Hz.
 
+**Example Plot:**
+
+![alt text](cartesian_error_ex1.png)
+
 # Plot Torque Log
 
 After running the eddie-ros interface, a log CSV file will be created in your workspace. 
