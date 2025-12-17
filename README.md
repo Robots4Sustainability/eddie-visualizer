@@ -55,6 +55,21 @@ Optionally plots only the last N seconds of data.
 python plot_torque_log.py ~/your_workspace/torque_log.csv --last-seconds 5
 ```
 
+**Example plot**
+
+You can use the example log file:
+
+```bash
+python plot_torque_log.py torque_log.csv --last-seconds 5
+```
+
+![alt text](torque_plot_example.png)
+
+**How to interpret the plot**
+
+Whenever there is a dynamic change in the PID gains, the torques are interpolated to avoid spikes, and the resulting smoothed torques are sent rather than the raw torques. The "smoothed torques" are exactly the same as raw torques when there are no dynamic changes, which is why the values overlap in the plot. When you see the smoothed torques are different than the raw torques, you can infer that there has been a dynamic change and the interpolator was activated.
+
+
 # PID Component Visualizer
 
 Subscribes to a specific PID component topic (e.g., /right_arm/pid_components/pos_z) and plots the P, I, D, and Total contributions in real-time.
