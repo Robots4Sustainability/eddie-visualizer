@@ -88,3 +88,6 @@ python pid_component_visualizer.py --arm <arm_side> --axis <pos/rot>_<axis>
 python pid_component_visualizer.py --arm right --axis pos_z
 python pid_component_visualizer.py --arm left --axis rot_x
 ```
+
+**Example Plot**
+![alt text](pid_component_example.png)
